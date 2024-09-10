@@ -1,0 +1,30 @@
+[package]
+name = "message-exchange-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7.5", features = ["ws"] }
+listenfd = "1.0.1"
+tokio = { version = "1.39.2", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+tower-http = { version = "0.5", features = ["trace"] }
+tower = { version = "0.5", features = ["util"] }
+futures = "0.3"
+
+
+[profile.release]
+codegen-units = 1
+debug = false
+debug-assertions = false
+incremental = true
+lto = 'fat'
+opt-level = 3
+overflow-checks = false
+panic = 'unwind'
+rpath = false
+split-debuginfo = 'off'
+strip = true
