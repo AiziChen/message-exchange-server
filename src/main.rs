@@ -95,19 +95,21 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     let mut client_name = String::new();
     while let Some(Ok(message)) = receiver.next().await {
         if let Message::Text(content) = message {
-            if !content.is_empty() {
-                if let Ok(msg) = serde_json::from_str::<IMessage>(&content) {
-                    if msg.mtype.eq(TYPE_CLIENT_CONNECT) {
+            if let Ok(msg) = serde_json::from_str::<IMessage>(&content) {
+                if msg.mtype.eq(TYPE_CLIENT_CONNECT) {
+                    if msg.from.is_empty() {
+                        return;
+                    } else {
                         check_client_name(&state, &mut client_name, &msg.from);
                         if let Ok(rs) = serde_json::to_string(&StatusMessage { success: true, mtype: TYPE_SERVER_CONNECT, message: "connection establish" }) {
                             _ = sender.send(Message::Text(rs)).await;
                             break;
                         }
                     }
-                } else {
-                    if let Ok(rs) = serde_json::to_string(&StatusMessage { success: false, mtype: TYPE_SERVER_CONNECT, message: "connection failed" }) {
-                        _ = sender.send(Message::Text(rs)).await;
-                    }
+                }
+            } else {
+                if let Ok(rs) = serde_json::to_string(&StatusMessage { success: false, mtype: TYPE_SERVER_CONNECT, message: "connection failed" }) {
+                    _ = sender.send(Message::Text(rs)).await;
                 }
             }
         }
