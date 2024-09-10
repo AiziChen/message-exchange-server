@@ -21,7 +21,7 @@ pub const TYPE_SERVER_INFO: &str = "s:info";
 pub const TYPE_CLIENT_CONNECT: &str = "c:connect";
 
 struct AppState {
-    user_set: Mutex<HashSet<String>>,
+    clients_set: Mutex<HashSet<String>>,
     tx: broadcast::Sender<String>,
 }
 
@@ -61,10 +61,10 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let user_set = Mutex::new(HashSet::new());
+    let clients_set = Mutex::new(HashSet::new());
     let (tx, _rx) = broadcast::channel(100);
 
-    let app_state = Arc::new(AppState { user_set, tx });
+    let app_state = Arc::new(AppState { clients_set, tx });
 
     let app = Router::new()
         .route("/", get(index))
@@ -92,13 +92,13 @@ async fn websocket_handler(
 
 async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = stream.split();
-    let mut username = String::new();
+    let mut client_name = String::new();
     while let Some(Ok(message)) = receiver.next().await {
         if let Message::Text(content) = message {
             if !content.is_empty() {
                 if let Ok(msg) = serde_json::from_str::<IMessage>(&content) {
                     if msg.mtype.eq(TYPE_CLIENT_CONNECT) {
-                        check_username(&state, &mut username, &msg.from);
+                        check_client_name(&state, &mut client_name, &msg.from);
                         if let Ok(rs) = serde_json::to_string(&StatusMessage { success: true, mtype: TYPE_SERVER_CONNECT, message: "connection establish" }) {
                             _ = sender.send(Message::Text(rs)).await;
                             break;
@@ -113,7 +113,7 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
         }
     }
     let mut rx = state.tx.subscribe();
-    if let Ok(msg) = serde_json::to_string(&IMessage { from: "server".to_owned(), mtype: TYPE_SERVER_INFO, message: format!("{username} joined.") }) {
+    if let Ok(msg) = serde_json::to_string(&IMessage { from: "server".to_owned(), mtype: TYPE_SERVER_INFO, message: format!("{client_name} joined.") }) {
         tracing::debug!("{msg}");
         _ = state.tx.send(msg);
     }
@@ -126,7 +126,7 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     });
 
     let tx = state.tx.clone();
-    let name = username.clone();
+    let name = client_name.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(Message::Text(text))) = receiver.next().await {
             tracing::debug!("{name}: {text}");
@@ -139,18 +139,18 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
         _ = &mut recv_task => send_task.abort(),
     }
 
-    if let Ok(msg) = serde_json::to_string(&IMessage { from: "server".to_owned(), mtype: TYPE_SERVER_INFO, message: format!("{username} left.") }) {
+    if let Ok(msg) = serde_json::to_string(&IMessage { from: "server".to_owned(), mtype: TYPE_SERVER_INFO, message: format!("{client_name} left.") }) {
         tracing::debug!("{msg}");
         _ = state.tx.send(msg);
     }
-    state.user_set.lock().unwrap().remove(&username);
+    state.clients_set.lock().unwrap().remove(&client_name);
 }
 
-fn check_username(state: &AppState, username: &mut String, name: &str) {
-    let mut user_set = state.user_set.lock().unwrap();
-    if !user_set.contains(name) {
-        user_set.insert(name.to_owned());
-        username.push_str(name);
+fn check_client_name(state: &AppState, client_name: &mut String, name: &str) {
+    let mut clients_set = state.clients_set.lock().unwrap();
+    if !clients_set.contains(name) {
+        clients_set.insert(name.to_owned());
+        client_name.push_str(name);
     }
 }
 
