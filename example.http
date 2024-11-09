@@ -1,0 +1,15 @@
+### get info
+POST http://localhost:9001/login/getInfo
+Host: localhost
+Content-Type: application/x-www-form-urlencoded
+
+token=669703d6-bc26-4629-8f0e-51332e09e8a7
+
+###
+
+### do login
+POST http://localhost:9001/login/doLogin
+Host: localhost
+Content-Type: application/x-www-form-urlencoded
+
+###

@@ -1,19 +1,20 @@
 [package]
-name = "message-exchange-server"
+name = "nfc-service"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.7.5", features = ["ws"] }
-listenfd = "1.0.1"
-tokio = { version = "1.39.2", features = ["full"] }
+axum = { version = "0.7", features = ["ws", "macros"] }
+listenfd = "1.0"
+tokio = { version = "1.41", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
-tower-http = { version = "0.5", features = ["trace"] }
+tower-http = { version = "0.6", features = ["trace"] }
 tower = { version = "0.5", features = ["util"] }
 futures = "0.3"
+uuid = { version = "1.11", features = ["v4", "fast-rng"] }
 
 
 [profile.release]
