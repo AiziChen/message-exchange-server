@@ -1,7 +1,6 @@
 use axum::debug_handler;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use std::thread::current;
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
 use axum::http::StatusCode;
@@ -40,11 +39,12 @@ struct LoginResult {
 
 #[derive(Serialize, Debug)]
 struct CardData {
-    cardNum: String,
+    #[serde(rename = "cardNum")]
+    card_num: String,
     mtype: String,
     aids: String,
 }
-#[derive(Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 struct BaseMessage {
     cmd: String,
     #[serde(rename = "type")]
@@ -101,7 +101,7 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
                 let mut clients_set = state.clients_set.lock().unwrap();
                 let token = &msg.token;
                 if !clients_set.contains(token) {
-                    clients_set.insert(msg.token);
+                    clients_set.insert(token.to_string());
                     current_token = token.to_owned();
                 }
                 if msg.cmd.eq("init") {
@@ -114,7 +114,7 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     let mut rx = state.tx.subscribe();
     let mut send_task = tokio::spawn(async move {
         while let Ok(content) = rx.recv().await {
-            info!("receive msg: ", content);
+            info!("receive msg: {}", content);
             _ = sender.send(Message::Text(content)).await;
             // if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
             //     if msg.token.eq(&current_token) {
@@ -125,10 +125,11 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     });
 
     let tx = state.tx.clone();
+    let token = current_token.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(Message::Text(content))) = receiver.next().await {
             if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
-                if msg.token.eq(&current_token) && msg.cmd.eq("scan_info") {
+                if msg.token.eq(&token) && msg.cmd.eq("scan_info") {
                     info!("sending message: {}", &content);
                     _ = tx.send(content);
                 }
