@@ -1,5 +1,5 @@
 use axum::debug_handler;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
@@ -21,7 +21,7 @@ use uuid::Uuid;
 const DEFAULT_BIND_ADDR: &str = "0.0.0.0:9001";
 
 struct AppState {
-    clients_set: Mutex<HashSet<String>>,
+    clients_map: Mutex<HashMap<String, String>>,
     tx: broadcast::Sender<String>,
 }
 
@@ -61,10 +61,10 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let clients_set = Mutex::new(HashSet::new());
+    let clients_map = Mutex::new(HashMap::new());
     let (tx, _rx) = broadcast::channel(100);
 
-    let app_state = Arc::new(AppState { clients_set, tx });
+    let app_state = Arc::new(AppState { clients_map: clients_map, tx });
 
     let app = Router::new()
         .route("/", get(index))
@@ -94,16 +94,10 @@ async fn websocket_handler(
 
 async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = stream.split();
-    let mut current_token = String::new();
     while let Some(Ok(message)) = receiver.next().await {
         if let Message::Text(content) = message {
             if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
-                let mut clients_set = state.clients_set.lock().unwrap();
                 let token = &msg.token;
-                if !clients_set.contains(token) {
-                    clients_set.insert(token.to_string());
-                    current_token = token.to_owned();
-                }
                 if msg.cmd.eq("init") {
                     info!("device {} has been connected", token);
                     break;
@@ -115,25 +109,21 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     let mut send_task = tokio::spawn(async move {
         while let Ok(content) = rx.recv().await {
             info!("receive msg: {}", content);
-            _ = sender.send(Message::Text(content)).await;
-            // if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
-            //     if msg.token.eq(&current_token) {
-            //         _ = sender.send(Message::Text(content)).await;
-            //     }
-            // }
+            if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
+                _ = sender.send(Message::Text(content)).await;
+            }
         }
     });
 
     let tx = state.tx.clone();
-    let token = current_token.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(Message::Text(content))) = receiver.next().await {
-            if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
-                if msg.token.eq(&token) && msg.cmd.eq("scan_info") {
-                    info!("sending message: {}", &content);
-                    _ = tx.send(content);
-                }
-            }
+            // if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
+            //     if msg.token.eq(&token) && msg.cmd.eq("scan_info") {
+            //         info!("sending message: {}", &content);
+            //         _ = tx.send(content);
+            //     }
+            // }
         }
     });
 
@@ -142,20 +132,45 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
         _ = &mut recv_task => send_task.abort(),
     }
 
-    state.clients_set.lock().unwrap().remove(&current_token);
+    state.clients_map.lock().unwrap().remove(&current_token);
 }
 
 async fn index() -> Html<&'static str> {
     Html("service is on")
 }
 
-async fn do_login() -> (StatusCode, Json<LoginResult>) {
-    (StatusCode::OK,
-     Json::from(LoginResult {
-         code: "1",
-         message: "ok",
-         token: Uuid::new_v4().to_string(),
-     }))
+#[derive(Serialize, Debug)]
+struct LoginForm {
+    username: String,
+    pwd: String,
+    #[serde(rename = "type")]
+    mtype: String,
+    device: String,
+}
+
+async fn do_login(Form(login_data): Form<LoginForm>, State(state): State<Arc<AppState>>) -> (StatusCode, Json<LoginResult>) {
+    let mut clients_map = state.clients_map.lock().unwrap();
+    let mut client_id = String::new();
+    client_id.push_str(&login_data.username);
+    client_id.push_str(&login_data.pwd);
+    if clients_map.contains_key(&client_id) {
+        let token = clients_map.get(&client_id).unwrap_or(&Uuid::new_v4().to_string());
+        (StatusCode::OK,
+         Json::from(LoginResult {
+             code: "1",
+             message: "ok",
+             token: token.into_string(),
+         }))
+    } else {
+        let uuid = Uuid::new_v4();
+        clients_map.insert(client_id, uuid.to_string());
+        (StatusCode::OK,
+         Json::from(LoginResult {
+             code: "1",
+             message: "ok",
+             token: uuid.to_string(),
+         }))
+    }
 }
 
 #[debug_handler]
