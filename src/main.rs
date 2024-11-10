@@ -131,15 +131,13 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
         _ = &mut send_task => recv_task.abort(),
         _ = &mut recv_task => send_task.abort(),
     }
-
-    state.clients_map.lock().unwrap().remove(&current_token);
 }
 
 async fn index() -> Html<&'static str> {
     Html("service is on")
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct LoginForm {
     username: String,
     pwd: String,
@@ -148,18 +146,19 @@ struct LoginForm {
     device: String,
 }
 
-async fn do_login(Form(login_data): Form<LoginForm>, State(state): State<Arc<AppState>>) -> (StatusCode, Json<LoginResult>) {
+#[debug_handler]
+async fn do_login(State(state): State<Arc<AppState>>, Form(login_data): Form<LoginForm>) -> (StatusCode, Json<LoginResult>) {
     let mut clients_map = state.clients_map.lock().unwrap();
     let mut client_id = String::new();
     client_id.push_str(&login_data.username);
     client_id.push_str(&login_data.pwd);
     if clients_map.contains_key(&client_id) {
-        let token = clients_map.get(&client_id).unwrap_or(&Uuid::new_v4().to_string());
+        let token = clients_map.get(&client_id).unwrap();
         (StatusCode::OK,
          Json::from(LoginResult {
              code: "1",
              message: "ok",
-             token: token.into_string(),
+             token: token.to_string(),
          }))
     } else {
         let uuid = Uuid::new_v4();
