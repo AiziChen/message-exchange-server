@@ -38,6 +38,7 @@ struct LoginResult {
 }
 
 #[derive(Serialize, Debug)]
+#[allow(unused)]
 struct CardData {
     #[serde(rename = "cardNum")]
     card_num: String,
@@ -64,7 +65,7 @@ async fn main() {
     let clients_map = Mutex::new(HashMap::new());
     let (tx, _rx) = broadcast::channel(100);
 
-    let app_state = Arc::new(AppState { clients_map: clients_map, tx });
+    let app_state = Arc::new(AppState { clients_map, tx });
 
     let app = Router::new()
         .route("/", get(index))
@@ -94,12 +95,14 @@ async fn websocket_handler(
 
 async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = stream.split();
+    let mut current_token = String::new();
     while let Some(Ok(message)) = receiver.next().await {
         if let Message::Text(content) = message {
             if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
                 let token = &msg.token;
                 if msg.cmd.eq("init") {
-                    info!("device {} has been connected", token);
+                    println!("device {} has been connected", token);
+                    current_token = msg.token;
                     break;
                 }
             }
@@ -108,22 +111,22 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     let mut rx = state.tx.subscribe();
     let mut send_task = tokio::spawn(async move {
         while let Ok(content) = rx.recv().await {
-            info!("receive msg: {}", content);
-            if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
-                _ = sender.send(Message::Text(content)).await;
+            if sender.send(Message::Text(content)).await.is_err() {
+                break;
             }
         }
     });
 
     let tx = state.tx.clone();
+    let token = current_token.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(Message::Text(content))) = receiver.next().await {
-            // if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
-            //     if msg.token.eq(&token) && msg.cmd.eq("scan_info") {
-            //         info!("sending message: {}", &content);
-            //         _ = tx.send(content);
-            //     }
-            // }
+            if let Ok(msg) = serde_json::from_str::<BaseMessage>(&content) {
+                if msg.token.eq(&token) {
+                    println!("sending message: {}", &content);
+                    _ = tx.send(content);
+                }
+            }
         }
     });
 
